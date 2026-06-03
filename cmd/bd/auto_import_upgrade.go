@@ -102,7 +102,25 @@ func maybeAutoImportJSONL(ctx context.Context, s storage.DoltStorage, beadsDir s
 		return
 	}
 
-	// Fallback for non-embedded stores: multi-call path (original behavior).
+	// Fallback for non-embedded stores (e.g. the dolt sql-server backend):
+	// multi-call path. Unlike the embedded path — whose ImportJSONLData checks
+	// emptiness atomically inside its transaction (and skips when TotalIssues>0)
+	// — this path historically had NO emptiness guard, so it re-imported the
+	// entire JSONL on EVERY non-read-only invocation. For a large town JSONL
+	// (e.g. hq at 5+ MB) that import takes tens of seconds, turning routine
+	// commands like 'gt mail inbox' into multi-second hangs (gt-5mha). Mirror
+	// the embedded guard here: only import into a genuinely empty database.
+	stats, err := s.GetStatistics(ctx)
+	if err != nil {
+		// Can't confirm emptiness — skip rather than risk a spurious re-import.
+		// The JSONL data is still safe; the user can run 'bd import' explicitly.
+		fmt.Fprintf(os.Stderr, "warning: auto-import: skipped (could not verify database is empty: %v)\n", err)
+		return
+	}
+	if stats.TotalIssues > 0 {
+		return // database is not empty — skip import (matches embedded path)
+	}
+
 	fmt.Fprintf(os.Stderr, "auto-importing %d bytes from %s into empty database...\n", info.Size(), jsonlPath)
 
 	result, err := fallbackImporter(ctx, s, jsonlPath)
