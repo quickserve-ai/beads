@@ -113,6 +113,7 @@ func runSearchQueryInTx(ctx context.Context, tx *sql.Tx, tables FilterTables, wh
 		LEFT JOIN (
 			SELECT issue_id, JSON_ARRAYAGG(label) AS labels_json
 			FROM %s
+			WHERE issue_id IN (SELECT id FROM base)
 			GROUP BY issue_id
 		) l ON l.issue_id = i.id`, tables.Labels)
 	if skipLabels {
@@ -120,7 +121,30 @@ func runSearchQueryInTx(ctx context.Context, tx *sql.Tx, tables FilterTables, wh
 		labelsJoin = ""
 	}
 
+	// The filtered+ordered+limited issue set is computed ONCE in the `base`
+	// CTE; every aggregation is then bounded to that set via
+	// `WHERE issue_id IN (SELECT id FROM base)` (and the reverse-blocker
+	// aggregation via `dep_id IN (...)`). This stops each derived-table
+	// aggregation from scanning the ENTIRE dependencies/comments/labels tables
+	// on large DBs (gt-1qjp). The WHERE/LIMIT live in the CTE so the heavy
+	// aggregations only ever touch the rows the query actually returns; the
+	// outer ORDER BY reproduces the final result order. Behavior — returned
+	// columns, counts, parent, labels, deps_json — is identical to the prior
+	// unscoped form because every issue in `base` still sees all of its own
+	// edges/labels/comments. Dolt 2.1.1 supports multi-reference CTEs.
+	//
+	// Aliasing the CTE source as `i` keeps BuildIssueFilterClauses' unqualified
+	// WHERE columns and the `i.`-prefixed orderBy resolving correctly; those
+	// clauses reference only main-table columns or self-contained
+	// `id IN (SELECT ... FROM labels/dependencies ...)` subqueries, never the
+	// join aliases, so moving them into the CTE is safe.
 	searchSQL := fmt.Sprintf(`
+		WITH base AS (
+			SELECT i.* FROM %s i
+			%s
+			%s
+			%s
+		)
 		SELECT %s,
 			%s,
 			COALESCE(dc.cnt, 0) AS dep_count,
@@ -128,43 +152,46 @@ func runSearchQueryInTx(ctx context.Context, tx *sql.Tx, tables FilterTables, wh
 			COALESCE(cc.cnt, 0) AS comment_count,
 			pc.parent_id     AS parent_id,
 			d.deps_json      AS deps_json
-		FROM %s i
+		FROM base i
 		%s
 		LEFT JOIN (
 			SELECT issue_id, COUNT(*) AS cnt
 			FROM %s
-			WHERE type = 'blocks'
+			WHERE type = 'blocks' AND issue_id IN (SELECT id FROM base)
 			GROUP BY issue_id
 		) dc ON dc.issue_id = i.id
 		LEFT JOIN (
 			SELECT dep_id, COUNT(*) AS cnt FROM (
 				%s
-			) all_blockers GROUP BY dep_id
+			) all_blockers WHERE dep_id IN (SELECT id FROM base) GROUP BY dep_id
 		) rc ON rc.dep_id = i.id
 		LEFT JOIN (
 			SELECT issue_id, COUNT(*) AS cnt
 			FROM %s
+			WHERE issue_id IN (SELECT id FROM base)
 			GROUP BY issue_id
 		) cc ON cc.issue_id = i.id
 		LEFT JOIN (
 			SELECT issue_id,
 			       MIN(COALESCE(depends_on_issue_id, depends_on_wisp_id, depends_on_external)) AS parent_id
 			FROM %s
-			WHERE type = 'parent-child'
+			WHERE type = 'parent-child' AND issue_id IN (SELECT id FROM base)
 			GROUP BY issue_id
 		) pc ON pc.issue_id = i.id
 		LEFT JOIN (
 			SELECT issue_id, JSON_ARRAYAGG(%s) AS deps_json
 			FROM %s
+			WHERE issue_id IN (SELECT id FROM base)
 			GROUP BY issue_id
 		) d ON d.issue_id = i.id
 		%s
-		%s
-		%s
 	`,
+		tables.Main,
+		whereSQL,
+		orderBySQL,
+		limitSQL,
 		readyWorkIssueColumns,
 		labelsSelect,
-		tables.Main,
 		labelsJoin,
 		tables.Dependencies,
 		reverseBlockerSelect,
@@ -172,9 +199,7 @@ func runSearchQueryInTx(ctx context.Context, tx *sql.Tx, tables FilterTables, wh
 		tables.Dependencies,
 		readyWorkDepJSONObject,
 		tables.Dependencies,
-		whereSQL,
 		orderBySQL,
-		limitSQL,
 	)
 
 	rows, err := tx.QueryContext(ctx, searchSQL, args...)
