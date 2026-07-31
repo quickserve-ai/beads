@@ -96,6 +96,27 @@ func TestBuildSQLInClause(t *testing.T) {
 	}
 }
 
+func TestBuildReadyWorkPredicatesFiltersAnyLabel(t *testing.T) {
+	t.Parallel()
+
+	_, _, tx := beginMockTx(t)
+	predicates, err := buildReadyWorkPredicates(context.Background(), tx, types.WorkFilter{
+		LabelsAny:       []string{"platform", "woodhouse"},
+		IncludeDeferred: true,
+		SortPolicy:      types.SortPolicyPriority,
+	}, IssuesFilterTables)
+	if err != nil {
+		t.Fatalf("buildReadyWorkPredicates: %v", err)
+	}
+	if !strings.Contains(predicates.whereSQL, "id IN (SELECT issue_id FROM labels WHERE label IN (?, ?))") {
+		t.Fatalf("whereSQL = %q, want OR label predicate", predicates.whereSQL)
+	}
+	wantArgs := []interface{}{"merge-request", "gate", "molecule", "message", "agent", "role", "rig", "platform", "woodhouse"}
+	if !reflect.DeepEqual(predicates.args, wantArgs) {
+		t.Fatalf("args = %#v, want %#v", predicates.args, wantArgs)
+	}
+}
+
 func TestGetReadyWorkInTx_PropagatesDeferredParentChildError(t *testing.T) {
 	t.Parallel()
 
