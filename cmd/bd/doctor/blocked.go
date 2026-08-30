@@ -33,7 +33,17 @@ func CheckBlockedConsistencyWithStore(ss *SharedStore) DoctorCheck {
 }
 
 func checkBlockedConsistencyWithStore(ctx context.Context, store *dolt.DoltStore) DoctorCheck {
-	stale, err := issueops.CountIsBlockedInconsistenciesInTx(ctx, store.UnderlyingDB())
+	// The consistency COUNT walks correlated EXISTS over every issue and, on a
+	// remote server, exceeds the pooled connection's 10s readTimeout — the
+	// driver kills the read as "invalid connection", blinding this check on
+	// exactly the shared store where staleness is most likely (ga-fo8w65).
+	// Run it on a one-shot long-timeout handle instead.
+	var stale int64
+	db, err := store.LongTimeoutDB()
+	if err == nil {
+		defer db.Close()
+		stale, err = issueops.CountIsBlockedInconsistenciesInTx(ctx, db)
+	}
 	if err != nil {
 		return DoctorCheck{
 			Name:    BlockedConsistencyCheckName,
