@@ -50,6 +50,19 @@ func parseIssueID(input string, prefix string) string {
 // - No issue found matching the ID
 // - Multiple issues match (ambiguous prefix)
 func ResolvePartialID(ctx context.Context, store PartialIDResolverStore, input string) (string, error) {
+	// Refuse bare tooling sentinels before any lookup. jq -r prints the literal
+	// string "null" when a selector misses, so `bd update "$B" ...` with a missed
+	// selection would otherwise SUBSTRING-match an arbitrary issue whose hash
+	// happens to contain the token — and mutate it while reporting success
+	// (ga-emfu6w). No legitimate call ever means these tokens; a real issue ID
+	// containing them still resolves via its prefixed or longer form.
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "":
+		return "", fmt.Errorf("refusing empty issue ID: the caller's ID variable is unset")
+	case "null", "undefined":
+		return "", fmt.Errorf("refusing sentinel token %q as an issue ID: this is what jq/JS tooling prints for a missing value — the caller's selector matched nothing", input)
+	}
+
 	if store == nil {
 		return "", fmt.Errorf("cannot resolve issue ID %q: storage is nil", input)
 	}
