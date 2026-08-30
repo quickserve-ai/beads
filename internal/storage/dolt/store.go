@@ -1819,6 +1819,27 @@ func (s *DoltStore) execWithLongTimeout(ctx context.Context, query string, args 
 	return tx.Commit()
 }
 
+// LongTimeoutDB opens a one-shot database handle with readTimeout=5m for
+// heavy read-only diagnostics. The doctor blocked-consistency COUNT walks
+// correlated EXISTS subqueries over every issue and, against a remote server,
+// exceeds the pooled connection's 10s readTimeout — the driver then reports
+// "invalid connection", so the one check that detects stale is_blocked rows
+// fails exactly on the shared multi-writer store where staleness is most
+// likely (ga-fo8w65). The caller must Close the returned handle.
+func (s *DoltStore) LongTimeoutDB() (*sql.DB, error) {
+	cfg, err := mysql.ParseDSN(s.connStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse DSN for long-timeout connection: %w", err)
+	}
+	cfg.ReadTimeout = 5 * time.Minute
+	db, err := sql.Open("mysql", cfg.FormatDSN())
+	if err != nil {
+		return nil, fmt.Errorf("failed to open long-timeout connection: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
+}
+
 // execWithLongTimeoutNoTx executes a long-running Dolt stored procedure without
 // an explicit transaction. Push operations do not need the pull/merge conflict
 // handling above, and DOLT_PUSH has diverged from direct `dolt push` behavior
