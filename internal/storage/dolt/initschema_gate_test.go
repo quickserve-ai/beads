@@ -35,7 +35,7 @@ func TestInitSchemaOnDBWithRetryAndGate_GateErrorClassification(t *testing.T) {
 			}
 			return &schema.RemoteMigrateGateError{CurrentVersion: 1, LatestVersion: 2, Pending: 1}
 		}
-		_, err := initSchemaOnDBWithRetryAndGate(ctx, db, gate)
+		_, err := initSchemaOnDBWithRetryAndGate(ctx, db, gate, defaultPoolReadTimeout)
 		if !schema.IsRemoteMigrateGateError(err) {
 			t.Fatalf("err = %T (%v), want *schema.RemoteMigrateGateError after retries", err, err)
 		}
@@ -50,7 +50,7 @@ func TestInitSchemaOnDBWithRetryAndGate_GateErrorClassification(t *testing.T) {
 			calls++
 			return &schema.RemoteMigrateGateError{CurrentVersion: 1, LatestVersion: 2, Pending: 1}
 		}
-		_, err := initSchemaOnDBWithRetryAndGate(ctx, db, gate)
+		_, err := initSchemaOnDBWithRetryAndGate(ctx, db, gate, defaultPoolReadTimeout)
 		if !schema.IsRemoteMigrateGateError(err) {
 			t.Fatalf("err = %T (%v), want *schema.RemoteMigrateGateError", err, err)
 		}
@@ -65,7 +65,7 @@ func TestInitSchemaOnDBWithRetryAndGate_GateErrorClassification(t *testing.T) {
 			calls++
 			return errors.New("remote-migrate gate: read remotes: syntax error")
 		}
-		_, err := initSchemaOnDBWithRetryAndGate(ctx, db, gate)
+		_, err := initSchemaOnDBWithRetryAndGate(ctx, db, gate, defaultPoolReadTimeout)
 		if err == nil || schema.IsRemoteMigrateGateError(err) {
 			t.Fatalf("err = %v, want plain permanent error", err)
 		}
