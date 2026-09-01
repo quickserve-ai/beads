@@ -141,6 +141,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`BEADS_DOLT_POOL_READ_TIMEOUT` / `dolt.pool-read-timeout` (and the write
+  twins) now apply to every `bd` command in server mode.** The knobs shipped in
+  #5089, but their env/config ladder ran only for callers of `NewFromConfig*`;
+  the CLI's own store open and `bd serve`'s provider hand-build their config
+  and go straight to `New`, so every `bd` command kept the built-in 10 s pool
+  deadline whatever the knob said. The ladder now runs from the constructor
+  every open path shares ([#6144](https://github.com/gastownhall/beads/issues/6144)).
+
 - **`bd ready --parent` and `bd blocked --parent` no longer re-scan the whole
   parent-child edge relation for every descendant they find.** The transitive
   descendant walk recursed against a materialized `parent_edges` CTE that Dolt
