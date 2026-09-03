@@ -147,7 +147,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the CLI's own store open and `bd serve`'s provider hand-build their config
   and go straight to `New`, so every `bd` command kept the built-in 10 s pool
   deadline whatever the knob said. The ladder now runs from the constructor
-  every open path shares ([#6144](https://github.com/gastownhall/beads/issues/6144)).
+  every DoltStore open shares — the CLI's store, `bd serve`'s store provider
+  and library callers of `New`/`NewFromConfig*`; `bd serve`'s HTTP data path
+  builds its own DSN without pool deadlines and is unchanged
+  ([#6144](https://github.com/gastownhall/beads/issues/6144)). Note for
+  operators of loaded servers: the documented precedence now reaches `bd
+  import` as well — it used to inherit the 5 m long-read fallback
+  unconditionally because the CLI's knob value was always 0, so a
+  `BEADS_DOLT_POOL_READ_TIMEOUT` set below that now bounds import too; size the
+  knob for your largest import, or leave it unset for the fallback.
 
 - **`bd ready --parent` and `bd blocked --parent` no longer re-scan the whole
   parent-child edge relation for every descendant they find.** The transitive
