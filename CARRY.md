@@ -19,7 +19,7 @@ which seats each rule binds today is recorded on the bridge role's status line
 | Branch | Contract | Reality (2026-09-08) |
 |---|---|---|
 | `main` | Fast-forward-only mirror of `gastownhall/beads` `main`. Never a carry commit, never a PR branch. Refresh with `git push origin upstream/main:main` after fetching upstream; a personal fork's `main` is kept equal the same way. | `= upstream/main` (`2bb1e20de`, schema head 0067). |
-| `carry/operational` | `upstream/main` plus the **marked documentation carries** in the ledger below — this file and `CONTRIBUTING.fork.md` — and nothing buildable. **Not a build source**: the fleet never builds `bd` from a branch that floats with upstream. Refreshed by rebasing the doc commit(s) onto the new `upstream/main` (force-with-lease on this branch only, never on `main`). | `= upstream/main + 1` (the commit that adds these two files). |
+| `carry/operational` | `upstream/main` plus the **marked documentation carries** in the ledger below — this file and `CONTRIBUTING.fork.md` — and nothing buildable. **Not a build source**: the fleet never builds `bd` from a branch that floats with upstream. Refreshed by rebasing the doc commit(s) onto the new `upstream/main` (force-with-lease on this branch only, never on `main`). | `= upstream/main` + the documentation commits in the ledger below (2 on 2026-09-08). Import checkouts follow a refresh by fetch + verified-clean `reset --keep`, never `pull --ff-only` (rules below). |
 | `carry-v<schema>/<slug>[-<slug>…]` | The fleet build lineage: the upstream SHA that upstream `gastownhall/gascity` `main` pins in `go.mod` (principle 3, "never ahead of support") plus a short stack of cherry-picks — one branch per pick, one cumulative branch per window build. Built and tested at the pin before it is pushed; handed to the gascity pin owner; every pick has a bead and a drop condition. | Pin `bf97b73749ac` (2026-08-05, schema **v59**). LIVE on both Alex-town machines since the 2026-09-03 window: `carry-v59/be-qfm-be-4at-be-bs7` @ `3d0d62858` = pin + 5 (ledger below). Component branches: `carry-v59/be-qfm` (+3), `carry-v59/be-4at` (+1), `carry-v59/be-bs7` (+1), `carry-v59/be-qfm-be-4at` (+4). |
 | `carry/operational-v1.1` | Cherub town's carry lineage on the same pin. Owned by Cherub's bd owner; Alex town never builds from, rebases or pushes to it. | @ `80f1605c3` = pin + 6; its ledger lives on Cherub's beads. |
 | `backup/*` | Pre-rewrite heads kept for rollback and forensics; never built, never deleted without both towns. | `backup/carry-operational-{local,origin}-pre-rebase-20260901` — the heads of the accumulated-carry model that the 2026-09-01 realignment ended. |
@@ -80,6 +80,19 @@ assumption.
   `git push origin HEAD:carry/operational --force-with-lease=carry/operational:<expected OID>`.
   Never bare `--force`; a rejected lease means unseen shared work — stop and
   reconcile. `main` is never force-pushed.
+- **Consumers of this branch follow a refresh by reset, never by fast-forward.**
+  Every nested import checkout of `carry/operational` (each bd owner's seat,
+  both towns) is updated after a refresh by fetching the exact new OID and
+  moving a verified-clean tree onto it:
+  `git fetch origin '+refs/heads/carry/operational:refs/remotes/origin/carry/operational'`,
+  then `test -z "$(git status --porcelain)"` — refuse a dirty or foreign-owned
+  checkout rather than merge or discard anything — then
+  `git reset --keep origin/carry/operational` (aborts by itself if a local
+  change would be lost; the old head stays in the reflog). A rebase makes
+  `git pull --ff-only` impossible here (measured by Cherub's bd owner
+  2026-09-08 in an isolated repository: exit 128, "Not possible to
+  fast-forward"); `--ff-only` fits `main`, the fast-forward mirror, and
+  nothing else on this repository.
 - **Adding a code carry**: one cherry-pick per commit onto the pin on
   `carry-v<schema>/<slug>`, built and tested at the pin, then a cumulative
   window branch (`<live branch's slugs>-<new slug>`) — the live build's stack
