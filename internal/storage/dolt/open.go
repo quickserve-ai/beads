@@ -315,19 +315,44 @@ func applyResolvedConfig(ctx context.Context, beadsDir string, fileCfg *configfi
 // store open and bd serve's provider hand-build their Config and never pass
 // through applyResolvedConfig, which is how the knob shipped in #5089 stayed
 // inert for every bd command in server mode (gastownhall/beads#6144).
+//
+// The config.yaml rung has two reads. config.GetString reads a package-global
+// viper populated only by cmd/bd's config.Initialize(), so for a library
+// consumer (gc, including its supervisor) it always returns "" and the rig's
+// configured deadlines were silently ignored — the process ran the 10s default
+// whatever the file said (ga-dwobeb). When that rung comes back empty and the
+// caller identified its project (cfg.BeadsDir — set by applyResolvedConfig for
+// every NewFromConfig* open, and settable by direct New() callers), fall back
+// to a direct read of that directory's config.yaml, the same fallback
+// dolt.auto-start has carried since it hit this exact hole. A hand-built
+// Config with no BeadsDir keeps today's behavior: env or default.
 func ApplyPoolTimeouts(cfg *Config) {
 	if cfg.PoolReadTimeout == 0 {
 		cfg.PoolReadTimeout = timeoutFromEnv("BEADS_DOLT_POOL_READ_TIMEOUT", 0)
 	}
 	if cfg.PoolReadTimeout == 0 {
-		cfg.PoolReadTimeout = parseTimeout(config.GetString("dolt.pool-read-timeout"), 0)
+		cfg.PoolReadTimeout = parseTimeout(poolTimeoutFromConfig(cfg, "dolt.pool-read-timeout"), 0)
 	}
 	if cfg.PoolWriteTimeout == 0 {
 		cfg.PoolWriteTimeout = timeoutFromEnv("BEADS_DOLT_POOL_WRITE_TIMEOUT", 0)
 	}
 	if cfg.PoolWriteTimeout == 0 {
-		cfg.PoolWriteTimeout = parseTimeout(config.GetString("dolt.pool-write-timeout"), 0)
+		cfg.PoolWriteTimeout = parseTimeout(poolTimeoutFromConfig(cfg, "dolt.pool-write-timeout"), 0)
 	}
+}
+
+// poolTimeoutFromConfig resolves one pool-deadline key from configuration:
+// the cmd/bd-initialized global viper first, then — for library consumers,
+// whose global viper is never initialized — a direct read of the project's
+// config.yaml when the caller set cfg.BeadsDir (ga-dwobeb).
+func poolTimeoutFromConfig(cfg *Config, key string) string {
+	if v := config.GetString(key); v != "" {
+		return v
+	}
+	if cfg.BeadsDir != "" {
+		return config.GetStringFromDir(cfg.BeadsDir, key)
+	}
+	return ""
 }
 
 // applyCentralConfigDefaults loads the central server config from
