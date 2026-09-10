@@ -1,0 +1,256 @@
+# Fleet release: build one fleet unit of bd on GitHub and publish it as the
+# attestation the fleet consumes (qc-bridge shared/fleet-gc-binary-roll.v1.md).
+#
+# FORK CARRY, not upstream. This file lives on quickserve-ai/beads' carry-v59/*
+# build lineage as a code carry with a CARRY.md ledger row (bead be-xnr): the
+# fork's own bd release mechanism, a twin of quickserve-ai/gascity's
+# .github/workflows/fleet-release.yml at dbfb52ec9. It publishes only from
+# quickserve-ai/beads — every job is guarded on github.repository, so a
+# personal fork pushing a fleet tag builds nothing and publishes nothing.
+#
+# A fleet tag is v<X.Y.(Z+1)>-fleet.<YYYYMMDD>[.n] (X.Y.Z = the upstream release
+# the pin follows, so the unit sorts above the pin's pseudo-version and below
+# upstream's next release) at a carry-lineage head, never on carry/operational,
+# which is the doc carry and never a build source. The tag is ANNOTATED and
+# names the pin in its message (a `pin: <sha40>` line), because the pin is not
+# necessarily on main: the v59 pin bf97b73749ac is the single commit of an
+# upstream backport branch, so no merge-base with main can find it.
+#
+# Two triggers: pushing a v*-fleet.* tag builds that tag; workflow_dispatch
+# builds a tag that already exists (a unit cut before this workflow did, or a
+# rebuild). Either way the checkout is fresh and refused unless `git describe`
+# names the exact tag and the tree is clean. The stamp is derived from git, not
+# the Makefile: main.Version = the tag without its leading v, main.Build =
+# <pin7>+carry.<sha7>, main.Commit = HEAD, main.Branch = the longest
+# origin/carry-v* branch containing HEAD (the cumulative lineage branch). The
+# build is CGO_ENABLED=1 (embedded Dolt needs cgo) with -tags gms_pure_go, the
+# tag the fleet's bd carries, so the binary links no ICU library and runs on any
+# machine of its platform. The release on the tag holds one asset per platform,
+# SHA256SUMS, the `go version -m` identity per asset, and the carries on the pin.
+name: Fleet release
+
+on:
+  push:
+    tags:
+      - "v*-fleet.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing fleet tag to build and publish, e.g. v1.1.1-fleet.20260910"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: fleet-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  FLEET_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    if: github.repository == 'quickserve-ai/beads'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-amd64
+          - os: macos-15
+            platform: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: refs/tags/${{ env.FLEET_TAG }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Refuse anything but a clean checkout at the tag
+        run: |
+          set -euo pipefail
+          described="$(git describe --tags --exact-match)"
+          if [ "$described" != "$FLEET_TAG" ]; then
+            echo "checkout describes as '$described', not '$FLEET_TAG'" >&2
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain >&2
+            echo "tree is not clean" >&2
+            exit 1
+          fi
+          echo "unit $FLEET_TAG = $(git rev-parse HEAD)"
+      - name: Derive the stamp
+        run: |
+          set -euo pipefail
+          if ! printf '%s\n' "$FLEET_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-fleet\.[0-9]{8}(\.[0-9]+)?$'; then
+            echo "'$FLEET_TAG' is not a fleet tag (v<X.Y.Z>-fleet.<YYYYMMDD>[.n])" >&2
+            exit 1
+          fi
+          kind="$(git cat-file -t "refs/tags/$FLEET_TAG")"
+          if [ "$kind" != "tag" ]; then
+            echo "refs/tags/$FLEET_TAG is a $kind, not an annotated tag; a fleet tag is annotated and names its pin" >&2
+            exit 1
+          fi
+          PIN="$(git tag -l --format='%(contents)' "$FLEET_TAG" | grep -E '^pin: [0-9a-f]{40}$' | head -n 1 | cut -d ' ' -f 2 || true)"
+          if [ -z "$PIN" ]; then
+            echo "tag $FLEET_TAG names no pin: its message needs a line 'pin: <40-hex sha>'" >&2
+            git tag -l --format='%(contents)' "$FLEET_TAG" >&2
+            exit 1
+          fi
+          if [ "$(git cat-file -t "$PIN" 2>/dev/null || true)" != "commit" ]; then
+            echo "pin $PIN is not a commit in this repository" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$PIN" HEAD; then
+            echo "pin $PIN is not an ancestor of the tagged commit" >&2
+            exit 1
+          fi
+          VERSION="${FLEET_TAG#v}"
+          COMMIT="$(git rev-parse HEAD)"
+          BUILD="${PIN:0:7}+carry.${COMMIT:0:7}"
+          BRANCH="$(git branch -r --contains HEAD --list 'origin/carry-v*' --format='%(refname:short)' \
+            | awk '{ if (length($0) > length(best)) best = $0 } END { print best }')"
+          BRANCH="${BRANCH#origin/}"
+          if [ -z "$BRANCH" ]; then
+            echo "no origin/carry-v* branch contains HEAD; stamping main.Branch with the tag" >&2
+            BRANCH="$FLEET_TAG"
+          fi
+          {
+            echo "VERSION=$VERSION"
+            echo "COMMIT=$COMMIT"
+            echo "PIN=$PIN"
+            echo "BUILD=$BUILD"
+            echo "BRANCH=$BRANCH"
+          } >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION"
+          echo "COMMIT=$COMMIT"
+          echo "PIN=$PIN"
+          echo "BUILD=$BUILD"
+          echo "BRANCH=$BRANCH"
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+      - name: Build the unit
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          go build -tags gms_pure_go -ldflags "-X main.Version=$VERSION -X main.Build=$BUILD -X main.Commit=$COMMIT -X main.Branch=$BRANCH" -o out/bd ./cmd/bd
+      - name: Verify the identity and self-containment
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          expected="bd version ${VERSION} (${BUILD}: ${BRANCH}@${COMMIT:0:12})"
+          actual="$(./out/bd version)"
+          if [ "$actual" != "$expected" ]; then
+            echo "bd version printed '$actual', expected '$expected'" >&2
+            exit 1
+          fi
+          echo "$actual"
+          identity="$(go version -m out/bd)"
+          printf '%s\n' "$identity" | grep -E '^[[:space:]]*(path|mod)[[:space:]]|-ldflags|-tags|vcs\.'
+          ldflags="-X main.Version=${VERSION} -X main.Build=${BUILD} -X main.Commit=${COMMIT} -X main.Branch=${BRANCH}"
+          printf '%s\n' "$identity" | grep -qF -- "-ldflags=\"${ldflags}\"" || { echo "ldflags are not '${ldflags}'" >&2; exit 1; }
+          for kv in "main.Version=${VERSION}" "main.Build=${BUILD}" "main.Commit=${COMMIT}" "main.Branch=${BRANCH}"; do
+            printf '%s\n' "$identity" | grep -qF -- "-X ${kv}" || { echo "missing -X ${kv}" >&2; exit 1; }
+          done
+          printf '%s\n' "$identity" | grep -q -- '-tags=gms_pure_go' || { echo "not built with gms_pure_go" >&2; exit 1; }
+          if printf '%s\n' "$identity" | grep -q 'vcs.modified=true'; then echo "dirty build" >&2; exit 1; fi
+          printf '%s\n' "$identity" | grep -E '^[[:space:]]*mod[[:space:]]+github.com/steveyegge/beads' || { echo "no main module line" >&2; exit 1; }
+          bash scripts/verify-cgo.sh out/bd
+          case "$PLATFORM" in
+            linux-*)  if ldd out/bd | grep -qi icu; then ldd out/bd >&2; echo "links ICU" >&2; exit 1; fi ;;
+            darwin-*) if otool -L out/bd | grep -qi icu; then otool -L out/bd >&2; echo "links ICU" >&2; exit 1; fi ;;
+          esac
+      - name: Name and checksum the asset
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          asset="bd-${FLEET_TAG}-${PLATFORM}"
+          mv -f out/bd "out/${asset}"
+          chmod 0755 "out/${asset}"
+          (cd out && shasum -a 256 "${asset}" > "${asset}.sha256")
+          go version -m "out/${asset}" > "out/${asset}.go-version-m"
+          printf '%s\n' "$COMMIT" > out/commit
+          printf '%s\n' "$BRANCH" > out/branch
+          printf '%s\n' "$PIN" > out/pin
+          git log --oneline --no-merges "${PIN}..HEAD" > out/carries
+          cat "out/${asset}.sha256"
+          ls -la out
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.platform }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: publish the release on the tag
+    if: github.repository == 'quickserve-ai/beads'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Assemble SHA256SUMS and verify every asset against it
+        run: |
+          set -euo pipefail
+          cd assets
+          cat ./*.sha256 | sort -k2 > SHA256SUMS
+          rm -f ./*.sha256
+          sha256sum -c SHA256SUMS
+          ls -la
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          commit="$(cat assets/commit)"
+          branch="$(cat assets/branch)"
+          pin="$(cat assets/pin)"
+          carries="$(cat assets/carries)"
+          rm -f assets/commit assets/branch assets/pin assets/carries
+          version="${FLEET_TAG#v}"
+          build="${pin:0:7}+carry.${commit:0:7}"
+          notes="$(mktemp)"
+          {
+            echo "bd fleet release \`${FLEET_TAG}\` = \`${commit}\` on \`${branch}\` (upstream pin \`${pin}\`; carries per CARRY.md on carry/operational)."
+            echo
+            echo "Built from a fresh checkout at the tag with \`CGO_ENABLED=1 -tags gms_pure_go\` (no ICU linkage) and ldflags \`main.Version=${version} main.Build=${build} main.Commit main.Branch\` by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. This release is the beads half of a fleet pair: the gascity fork's carry/operational pins it with \`replace github.com/steveyegge/beads => github.com/quickserve-ai/beads ${FLEET_TAG}\`, and the per-machine countersign is bd's first version token (\`${version}\`) equal to that replace line's version in gc's \`.go-version-m\`. The identity per asset is in its \`.go-version-m\` file. Consuming recipe: qc-bridge \`shared/fleet-gc-binary-roll.v1.md\`."
+            echo
+            echo "Carries on the pin (\`git log --oneline ${pin:0:7}..${commit:0:7}\`):"
+            echo
+            if [ -n "$carries" ]; then
+              bt="\`\`"
+              printf '%s\n' "$carries" | while IFS= read -r line; do printf -- '- %s %s %s\n' "$bt" "$line" "$bt"; done
+            else
+              echo "- (none: the tag is at the pin)"
+            fi
+            echo
+            echo '```'
+            cat assets/SHA256SUMS
+            echo '```'
+          } > "$notes"
+          if gh release view "$FLEET_TAG" >/dev/null 2>&1; then
+            gh release upload "$FLEET_TAG" assets/* --clobber
+            gh release edit "$FLEET_TAG" --title "bd fleet release ${FLEET_TAG}" --notes-file "$notes"
+          else
+            gh release create "$FLEET_TAG" assets/* --verify-tag --title "bd fleet release ${FLEET_TAG}" --notes-file "$notes"
+          fi
+          gh release view "$FLEET_TAG"
