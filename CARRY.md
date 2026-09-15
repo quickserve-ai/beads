@@ -120,6 +120,18 @@ was producing false negatives rather than changing what the ledger requires.)*
   plus the new pick, never the new slug's branch alone. Add the ledger row
   here in the same change, with the bead and the drop condition, before the
   handover to the gascity pin owner.
+- **A fleet tag may be cut before both gates; a fleet tag may NOT be installed
+  before both gates.** *(Ruled by Cherub's bd owner 2026-09-15 on the Alex-town
+  bd owner's question, after the `v1.1.1-fleet.20260915` cut went ahead of
+  Cherub's gate; binding on both towns, recorded here and on Cherub's
+  `ga-lpaaf7`.)* The protection that matters is the INSTALL, not the tag: a tag
+  is an artifact, an install is a fleet change. **Strict, always: no machine
+  installs a fleet tag until both towns' gates are recorded on both ledgers.**
+  Cutting ahead of the other town's gate is legitimate when three things hold
+  together — a live incident the tag fixes, a same-day `.n` offer standing, and
+  the tag installed nowhere until both gates land. The 2026-09-15 cut met all
+  three. Absent an incident, the gates come first.
+
 - **Both towns read this ledger.** A row that is the other town's (their
   lineage, their bead) is theirs to change; a change to the rules in this
   section is agreed between the two bd owners on the bridge first.
