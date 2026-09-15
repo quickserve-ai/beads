@@ -8,7 +8,15 @@
 # quickserve-ai/beads — every job is guarded on github.repository, so a
 # personal fork pushing a fleet tag builds nothing and publishes nothing.
 #
-# A fleet tag is v<X.Y.(Z+1)>-fleet.<YYYYMMDD>[.n] (X.Y.Z = the upstream release
+# A fleet tag is v<X.Y.Z>[-<prerelease>]-fleet.<YYYYMMDD>[.n]. The optional
+# prerelease segment carries an upstream PRERELEASE base through to the tag:
+# the v66 lineage sits on v1.3.0-rc.2, so its tags read v1.3.0-rc.2-fleet.<date>
+# and the stamp names the base honestly. Without it the grammar could only
+# express a plain X.Y.Z base and a prerelease-based lineage had to either lie
+# about its base or go untagged (measured 2026-09-15: the first v66 tag was
+# refused by the old grammar). The segment excludes '-', so the '-fleet.'
+# separator stays unambiguous.
+# Historically v<X.Y.(Z+1)>-fleet.<YYYYMMDD>[.n] (X.Y.Z = the upstream release
 # the pin follows, so the unit sorts above the pin's pseudo-version and below
 # upstream's next release) at a carry-lineage head, never on carry/operational,
 # which is the doc carry and never a build source. The tag is ANNOTATED and
@@ -89,8 +97,8 @@ jobs:
       - name: Derive the stamp
         run: |
           set -euo pipefail
-          if ! printf '%s\n' "$FLEET_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-fleet\.[0-9]{8}(\.[0-9]+)?$'; then
-            echo "'$FLEET_TAG' is not a fleet tag (v<X.Y.Z>-fleet.<YYYYMMDD>[.n])" >&2
+          if ! printf '%s\n' "$FLEET_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?-fleet\.[0-9]{8}(\.[0-9]+)?$'; then
+            echo "'$FLEET_TAG' is not a fleet tag (v<X.Y.Z>[-<prerelease>]-fleet.<YYYYMMDD>[.n])" >&2
             exit 1
           fi
           kind="$(git cat-file -t "refs/tags/$FLEET_TAG")"
