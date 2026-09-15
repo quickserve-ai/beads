@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/steveyegge/beads/internal/storage/dolt"
-	"github.com/steveyegge/beads/internal/storage/issueops"
 )
 
 // BlockedConsistencyCheckName is the doctor check name; applyFixList dispatches
@@ -33,7 +32,12 @@ func CheckBlockedConsistencyWithStore(ss *SharedStore) DoctorCheck {
 }
 
 func checkBlockedConsistencyWithStore(ctx context.Context, store *dolt.DoltStore) DoctorCheck {
-	stale, err := issueops.CountIsBlockedInconsistenciesInTx(ctx, store.UnderlyingDB())
+	// Ask the store, not UnderlyingDB: this COUNT is both long-running and
+	// branch-sensitive, and the store's method is the only caller that gets
+	// the long read timeout AND the branch pin (ga-fo8w65). On the pooled
+	// handle the check died "invalid connection" against a remote hub —
+	// blind on exactly the shared store where staleness is most likely.
+	stale, err := store.CountIsBlockedInconsistencies(ctx)
 	if err != nil {
 		return DoctorCheck{
 			Name:    BlockedConsistencyCheckName,
