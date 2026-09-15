@@ -4774,6 +4774,39 @@ func (s *DoltStore) recomputeBlockedAfterPullUnchecked(ctx context.Context, from
 	return nil
 }
 
+// CountIsBlockedInconsistencies reports how many issue/wisp rows have an
+// is_blocked flag that disagrees with the dependency graph. It is the read
+// behind doctor's "Blocked State" check, whose repair is RecomputeAllBlocked.
+//
+// Runs on withReadTxLongTimeout, not the shared pool, for two independent
+// reasons — either alone would justify it:
+//
+//  1. The COUNT walks correlated EXISTS subqueries over every issue. Against a
+//     remote server it outruns the pool's 10s ReadTimeout and the driver kills
+//     the read as "invalid connection" (ga-fo8w65), so the one check that
+//     detects stale is_blocked rows was blind on exactly the shared
+//     multi-writer store where staleness is most likely — a stale flag there
+//     made a bead undrawable until it was cleared by hand.
+//  2. A one-shot connection defaults to the default branch. Counting there
+//     would answer about the wrong branch entirely, silently: the number comes
+//     back, it is just not about the store's checked-out branch.
+//     withReadTxLongTimeout applies pinStoreBranch, which is what makes the
+//     answer be about this store.
+//
+// The closure assigns stale unconditionally because withRetry may replay it.
+func (s *DoltStore) CountIsBlockedInconsistencies(ctx context.Context) (int64, error) {
+	var stale int64
+	err := s.withReadTxLongTimeout(ctx, func(tx *sql.Tx) error {
+		var err error
+		stale, err = issueops.CountIsBlockedInconsistenciesInTx(ctx, tx)
+		if err != nil {
+			return wrapQueryError("count is_blocked inconsistencies", err)
+		}
+		return nil
+	})
+	return stale, err
+}
+
 // RecomputeAllBlocked recomputes is_blocked for every issue and wisp in one full
 // pass and returns the number of rows it corrected. It is the mode-independent
 // repair behind 'bd recompute-blocked' and 'bd doctor --fix' (bd-6dnrw.37): the
