@@ -181,7 +181,7 @@ func TestFreshBootstrapHealIncarnation(t *testing.T) {
 		prepareFreshBootstrapV51Dirty(t, ctx, replacement, "foreign_debris")
 
 		_, migrateErr := initSchemaOnDBWithRetryAndGateBootstrapHeal(
-			ctx, creatorDB, nil, facts.bootstrapHeal, serverEndpointIdentity(cfg),
+			ctx, creatorDB, nil, facts.bootstrapHeal, serverEndpointIdentity(cfg), 0,
 		)
 		var dirtyErr *schema.DirtyTablesError
 		if !errors.As(migrateErr, &dirtyErr) {
