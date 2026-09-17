@@ -2681,13 +2681,36 @@ func countExistingIssues(_ string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	store, err := newDoltStoreFromConfig(ctx, beadsDir)
+	// READ-ONLY, and the read-only-ness is the whole point (ga-ylug59).
+	//
+	// This is a PREFLIGHT whose only job is to count what a destructive
+	// re-init would throw away. It must never be the thing that MIGRATES.
+	// A writable open runs schema migrations — remote_migrate_gate.go admits
+	// v0 — and the 5s deadline above can cancel them PART-WAY (v36/v40/v50
+	// observed). init's real open then finds pending migrations on a server it
+	// counts as shared and refuses under #5920, so the probe that was supposed
+	// to protect a fresh database is what breaks initializing it. Every fresh
+	// gc city takes this path (gc-beads-bd.sh passes --reinit-local), so a
+	// slow or loaded box fails init the same way CI does.
+	//
+	// newReadOnlyStoreFromConfig, not dolt.NewFromConfigWithOptions: it keeps
+	// newDoltStoreFromConfig's config contract and backend dispatch, and its
+	// server-mode ReadOnly open skips migration entirely.
+	store, err := newReadOnlyStoreFromConfig(ctx, beadsDir)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = store.Close() }()
 
-	stats, err := store.GetStatistics(ctx)
+	// NoBlocked, deliberately. GetStatistics also counts the blocked set, which
+	// reads is_blocked — a MIGRATED column. Against a read-only open on an
+	// old-schema database that query fails, and runInitReinitPreflight treats
+	// any error here as "nothing to destroy" and skips the warning entirely.
+	// An old-schema database is exactly the kind someone re-initializes, so
+	// pairing the read-only open with the blocked-set count would have traded
+	// a CI flake for a silent data-loss path. The status/pinned columns this
+	// reads are far older than is_blocked.
+	stats, err := store.GetStatisticsNoBlocked(ctx)
 	if err != nil {
 		return 0, err
 	}
