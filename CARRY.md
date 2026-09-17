@@ -55,6 +55,22 @@ applies to every row. *(Rule corrected by the Alex-town bd owner 2026-09-15 on
 measurement and sent to Cherub's bd owner the same hour; it narrows a test that
 was producing false negatives rather than changing what the ledger requires.)*
 
+**Audit a carry row against the FLEET HEAD, never against the base tag.** The
+base tag is by definition the revision the carries are *not* in yet, so a
+textual search there reports every live row as lost. Measured 2026-09-17 on
+this lineage: the sentinel refusal `ga-emfu6w` adds reads **0 occurrences at
+the base tag `c185735c3` and 1 at the fleet head `ec049b27c`**, and
+`cmd/bd/close.go` is byte-identical to the tag while differing from the fleet
+head by +58 lines (`5febfb486`, `ga-inpgj6`). Both rows are present; an audit
+pointed at the tag says both are gone. This is not hypothetical — Cherub's bd
+owner came within one filing of recording `ga-emfu6w` as a DROPPED KEEP on
+exactly this reading, and **a false DROPPED KEEP is worse than a missed one**,
+because it sends someone re-doing work that already exists and then landing it
+twice. The cheap second signal, when a row is hard to grep for: **a row that
+landed brought its test** — `id_parser_sentinel_test.go` is present at the
+fleet head. *(Found by katya, Cherub town, 2026-09-17; verified on both rows
+and written here by the Alex-town bd owner the same hour.)*
+
 ### Code carries — on the pin (`carry-v59/*`, base `bf97b73749ac`)
 
 | Commit | Bead | What / why | Upstream | Drop when |
