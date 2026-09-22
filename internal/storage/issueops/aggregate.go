@@ -48,7 +48,6 @@ func UpdateFields(patch publicops.IssuePatch) map[string]interface{} {
 		{patch.AppendNotes.Set, "append_notes", patch.AppendNotes.Value},
 		{patch.SpecID.Set, "spec_id", patch.SpecID.Value},
 		{patch.AwaitID.Set, "await_id", patch.AwaitID.Value},
-		{patch.AwaitType.Set, "await_type", patch.AwaitType.Value},
 		{patch.Status.Set, "status", patch.Status.Value},
 		{patch.Priority.Set, "priority", patch.Priority.Value},
 		{patch.IssueType.Set, "issue_type", patch.IssueType.Value},
