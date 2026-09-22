@@ -554,6 +554,14 @@ func PrepareIssueForInsert(issue *types.Issue, customStatuses, customTypes []str
 		issue.ClosedAt = &closedAt
 	}
 
+	// A gate with no await type is invisible to every notifier: nothing ever
+	// fires it (ga-49tby1 — all nine live human-authored gates were
+	// null-typed). Default to the same 'human' that `bd gate create` uses; a
+	// wrong human default fails toward a visible reminder, never silence.
+	if issue.IssueType == types.TypeGate && issue.AwaitType == "" {
+		issue.AwaitType = "human"
+	}
+
 	if err := issue.ValidateWithCustom(customStatuses, customTypes); err != nil {
 		return fmt.Errorf("validation failed for issue %s: %w", issue.ID, err)
 	}
