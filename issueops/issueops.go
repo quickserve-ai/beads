@@ -121,6 +121,7 @@ type IssuePatch struct {
 	AppendNotes Field[string]
 	SpecID      Field[string]
 	AwaitID     Field[string]
+	AwaitType   Field[string]
 	// Status sets the issue's status. A status that crosses from outside the
 	// configured done category into it answers to close policy: the update
 	// refuses with CloseOpenChildrenError or ErrCloseBlocked unless
