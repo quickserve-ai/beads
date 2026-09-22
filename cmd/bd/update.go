@@ -281,10 +281,13 @@ pointless).`,
 			// A typo'd or empty await_type makes the gate invisible to every
 			// notifier keyed on the real values, which is the ga-49tby1 bug
 			// this verb exists to repair — refuse rather than write one.
-			switch awaitType {
-			case "human", "timer", "mail", "gh:run", "gh:pr":
+			switch {
+			case awaitType == "human" || awaitType == "timer" || awaitType == "mail" || awaitType == "bead":
+			case strings.HasPrefix(awaitType, "gh:run") || strings.HasPrefix(awaitType, "gh:pr"):
+				// gh values are prefix-matched by the gate checkers, so a
+				// historic suffixed form stays re-typeable.
 			default:
-				return HandleErrorRespectJSON("invalid --await-type %q: must be one of human, timer, mail, gh:run, gh:pr", awaitType)
+				return HandleErrorRespectJSON("invalid --await-type %q: must be one of human, timer, mail, bead, gh:run, gh:pr", awaitType)
 			}
 			updates["await_type"] = awaitType
 		}
