@@ -677,6 +677,8 @@ func issueFieldMatches(issue *types.Issue, key string, value interface{}) (bool,
 		return matchesString(issue.SpecID, value), nil
 	case "await_id":
 		return matchesString(issue.AwaitID, value), nil
+	case "await_type":
+		return matchesString(issue.AwaitType, value), nil
 	case "status":
 		return matchesStatus(issue.Status, value), nil
 	case "priority":

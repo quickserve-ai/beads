@@ -44,7 +44,7 @@ var allowedUpdateFields = map[string]struct{}{
 	"started_at": {}, "closed_at": {}, "close_reason": {}, "closed_by_session": {},
 	"source_repo": {}, "sender": {}, "wisp": {}, "wisp_type": {}, "no_history": {}, "pinned": {},
 	"mol_type": {}, "event_kind": {}, "actor": {}, "target": {}, "payload": {},
-	"due_at": {}, "defer_until": {}, "await_id": {}, "waiters": {},
+	"due_at": {}, "defer_until": {}, "await_id": {}, "await_type": {}, "waiters": {},
 	"metadata": {},
 }
 
@@ -58,6 +58,13 @@ func (r *issueSQLRepositoryImpl) Insert(ctx context.Context, issue *types.Issue,
 	}
 
 	normalizeIssueTimestamps(issue)
+	// Same default as PrepareIssueForInsert (ga-knhu61): this Insert is
+	// reached by the domain create use case, which bypasses that seam, and
+	// a gate with no await_type is invisible to every notifier. Before the
+	// content hash so the hash covers the stored value.
+	if issue.IssueType == types.TypeGate && issue.AwaitType == "" {
+		issue.AwaitType = "human"
+	}
 	if issue.ContentHash == "" {
 		issue.ContentHash = issue.ComputeContentHash()
 	}
