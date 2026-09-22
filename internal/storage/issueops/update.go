@@ -25,7 +25,7 @@ func IsAllowedUpdateField(key string) bool {
 		"sender":      true, "wisp": true, "wisp_type": true, "no_history": true, "pinned": true,
 		"mol_type":       true,
 		"event_category": true, "event_actor": true, "event_target": true, "event_payload": true,
-		"due_at": true, "defer_until": true, "await_id": true, "waiters": true,
+		"due_at": true, "defer_until": true, "await_id": true, "await_type": true, "waiters": true,
 		"metadata": true,
 	}
 	return allowed[key]
@@ -677,6 +677,8 @@ func issueFieldMatches(issue *types.Issue, key string, value interface{}) (bool,
 		return matchesString(issue.SpecID, value), nil
 	case "await_id":
 		return matchesString(issue.AwaitID, value), nil
+	case "await_type":
+		return matchesString(issue.AwaitType, value), nil
 	case "status":
 		return matchesStatus(issue.Status, value), nil
 	case "priority":

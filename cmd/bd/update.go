@@ -276,6 +276,21 @@ pointless).`,
 			awaitID, _ := cmd.Flags().GetString("await-id")
 			updates["await_id"] = awaitID
 		}
+		if cmd.Flags().Changed("await-type") {
+			awaitType, _ := cmd.Flags().GetString("await-type")
+			// A typo'd or empty await_type makes the gate invisible to every
+			// notifier keyed on the real values, which is the ga-49tby1 bug
+			// this verb exists to repair — refuse rather than write one.
+			switch {
+			case awaitType == "human" || awaitType == "timer" || awaitType == "mail" || awaitType == "bead":
+			case strings.HasPrefix(awaitType, "gh:run") || strings.HasPrefix(awaitType, "gh:pr"):
+				// gh values are prefix-matched by the gate checkers, so a
+				// historic suffixed form stays re-typeable.
+			default:
+				return HandleErrorRespectJSON("invalid --await-type %q: must be one of human, timer, mail, bead, gh:run, gh:pr", awaitType)
+			}
+			updates["await_type"] = awaitType
+		}
 		// Time-based scheduling flags (GH#820)
 		if cmd.Flags().Changed("due") {
 			dueStr, _ := cmd.Flags().GetString("due")
@@ -673,6 +688,8 @@ func buildUpdatePatch(updates map[string]interface{}) (issueops.IssuePatch, erro
 			patch.SpecID, ok = stringField(value)
 		case "await_id":
 			patch.AwaitID, ok = stringField(value)
+		case "await_type":
+			patch.AwaitType, ok = stringField(value)
 		case "closed_by_session":
 			patch.ClosedBySession, ok = stringField(value)
 		case "assignee":
@@ -1014,6 +1031,7 @@ func init() {
 	updateCmd.Flags().String("defer", "", "Defer until date (empty to clear). Issue hidden from bd ready until then, then auto-wakes to open")
 	// Gate fields (bd-z6kw)
 	updateCmd.Flags().String("await-id", "", "Set gate await_id (e.g., GitHub run ID for gh:run gates)")
+	updateCmd.Flags().String("await-type", "", "Set gate await_type (human, timer, mail, gh:run, gh:pr); re-types a gate in place — a gate with no await_type is invisible to notifiers")
 	// Ephemeral/persistent flags
 	updateCmd.Flags().Bool("ephemeral", false, "Mark issue as ephemeral (wisp) - not exported to JSONL")
 	updateCmd.Flags().Bool("persistent", false, "Mark issue as persistent (promote wisp to regular issue)")
