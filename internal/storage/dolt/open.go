@@ -349,6 +349,7 @@ func applyResolvedConfig(ctx context.Context, beadsDir string, fileCfg *configfi
 	}
 
 	applyPoolTimeouts(cfg)
+	applyDialTimeout(cfg)
 
 	return nil
 }
@@ -411,4 +412,19 @@ func applyCentralConfigDefaults(fileCfg *configfile.Config) {
 	}
 
 	configfile.ApplyCentralDefaults(fileCfg, centralCfg)
+}
+
+// applyDialTimeout fills the fail-fast dial budget when the caller left it
+// unset: caller override > BEADS_DOLT_DIAL_TIMEOUT > dolt.dial-timeout >
+// defaultDialTimeout (resolved at dial time by dialTimeoutFor, so an unset
+// field stays 0 here, like the pool deadlines). Same seam as
+// applyPoolTimeouts, for the same reason: the CLI's store open hand-builds
+// its Config and never passes through applyResolvedConfig (ga-g8lsb4).
+func applyDialTimeout(cfg *Config) {
+	if cfg.DialTimeout == 0 {
+		cfg.DialTimeout = timeoutFromEnv("BEADS_DOLT_DIAL_TIMEOUT", 0)
+	}
+	if cfg.DialTimeout == 0 {
+		cfg.DialTimeout = parseTimeout(poolTimeoutFromConfig(cfg, "dolt.dial-timeout"), 0)
+	}
 }
