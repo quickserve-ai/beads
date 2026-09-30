@@ -43,9 +43,10 @@ const (
 	// ignoredCursorUntrackTempTable holds the cursor rows across the drop.
 	// Dolt persists the working set to disk, so an uncommitted scratch table
 	// survives a crash: whatever phase is interrupted, the next open finds
-	// the rows and finishes the job. The name is deliberately not matched by
-	// any dolt_ignore pattern — a straggler must show up in dolt_status
-	// rather than hide.
+	// the rows and finishes the job. The name matches the seeded "__temp__%"
+	// dolt_ignore pattern, so a straggler does not show up in dolt_status:
+	// the reconcile finds it through information_schema instead, and the
+	// sweep force-stages its drop (see dropIgnoredCursorScratch).
 	ignoredCursorUntrackTempTable = "__temp__ignored_schema_migrations_untrack"
 
 	ignoredCursorUntrackCommitMessage = "schema: untrack legacy ignored_schema_migrations so dolt_ignore can apply (gastownhall/beads#4356)"
@@ -464,8 +465,8 @@ func restoreIgnoredCursorRows(ctx context.Context, db DBConn) error {
 }
 
 // dropIgnoredCursorScratch removes the scratch table and cleans up after the
-// one window in which it can end up tracked: it carries a perfectly
-// committable name, so a concurrent writer's blanket commit can sweep it into
+// one window in which it can end up tracked: a concurrent writer's blanket
+// commit, or one on a store seeded before "__temp__%" was, can sweep it into
 // HEAD during the repair. Dropping it locally would then leave a permanent
 // delete delta — the same class of tracked residue this whole fix exists to
 // remove — so the deletion is committed, scoped to that table.
@@ -496,7 +497,13 @@ func dropIgnoredCursorScratch(ctx context.Context, db DBConn) error {
 	if err := unstageBeforeIgnoredCursorUntrack(ctx, db); err != nil {
 		return fmt.Errorf("unstaging before dropping %s: %w", ignoredCursorUntrackTempTable, err)
 	}
-	return commitScopedTableChange(ctx, db, ignoredCursorUntrackTempTable, ignoredCursorTempSweepCommitMessage)
+	// '-f' for the same reason commitIgnoredCursorUntrack uses it: the scratch
+	// name is dolt_ignore'd ("__temp__%"), and a plain add of an ignored table
+	// is a silent no-op that would leave the drop as a permanent delete delta.
+	if err := DrainCall(ctx, db, "CALL DOLT_ADD('-f', ?)", ignoredCursorUntrackTempTable); err != nil {
+		return fmt.Errorf("staging the %s drop: %w", ignoredCursorUntrackTempTable, err)
+	}
+	return DrainCall(ctx, db, "CALL DOLT_COMMIT('-m', ?, '--skip-empty')", ignoredCursorTempSweepCommitMessage)
 }
 
 // ignoredCursorCopyColumns is the column list to move out of source, which is

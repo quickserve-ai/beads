@@ -184,7 +184,7 @@ func expectIgnoredCursorScratchDrop(mock sqlmock.Sqlmock, sweptIntoHead bool) {
 		return
 	}
 	expectIgnoredCursorUnstage(mock)
-	mock.ExpectQuery(regexp.QuoteMeta("CALL DOLT_ADD(?)")).
+	mock.ExpectQuery(regexp.QuoteMeta("CALL DOLT_ADD('-f', ?)")).
 		WithArgs(ignoredCursorUntrackTempTable).
 		WillReturnRows(sqlmock.NewRows([]string{"status"}))
 	mock.ExpectQuery(regexp.QuoteMeta("CALL DOLT_COMMIT('-m', ?, '--skip-empty')")).
@@ -483,8 +483,8 @@ func TestHealCopiesLegacyShapeWithoutContentHash(t *testing.T) {
 	}
 }
 
-// The scratch table carries a perfectly committable name, so a concurrent
-// writer's blanket commit can sweep it into HEAD during the repair window.
+// A concurrent writer's blanket commit (or one on a store seeded before
+// "__temp__%") can sweep the scratch table into HEAD during the repair window.
 // Dropping it locally would then leave a permanent delete delta — the same
 // class of tracked residue this whole fix exists to remove — so the deletion
 // is committed, scoped to that table, after the staging area is cleared so
@@ -778,8 +778,7 @@ func TestAlreadyConvergedDeclinesOnALegacyTrackedCursor(t *testing.T) {
 // state the cursor table itself reads perfectly healthy — so a fast path that
 // mirrored only the legacy-shape term would return "converged" forever and the
 // cleanup branch would be unreachable in server mode. The scratch is
-// deliberately NOT dolt_ignore'd, so the next pull's auto-commit puts it in
-// HEAD and push replicates it fleet-wide.
+// dolt_ignore'd ("__temp__%"), so nothing but this probe ever notices it.
 func TestAlreadyConvergedDeclinesOnASurvivingScratchTable(t *testing.T) {
 	db, mock := newMockDB(t)
 

@@ -590,7 +590,7 @@ func TestIgnoredCursorHealNeverResurrectsRolledBackVersions(t *testing.T) {
 				rolledBack, appliedAt)
 		}
 		if tablePresent(t, ctx, conn, untrackScratchTable) {
-			t.Errorf("%s survived; it is not dolt_ignore'd, so the next pull's auto-commit would replicate it fleet-wide", untrackScratchTable)
+			t.Errorf("%s survived the reconcile; stale bookkeeping must be removed", untrackScratchTable)
 		}
 		if dirty := dirtyTableNames(t, ctx, conn); len(dirty) > 0 {
 			t.Errorf("working set is dirty after the reconcile: %v", dirty)
