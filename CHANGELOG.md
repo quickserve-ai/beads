@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An ambient `BEADS_DOLT_SERVER_PORT` now marks a workspace externally
+  managed — suppressing auto-start — and no longer stops bd reaping its own
+  orphaned server**
+  ([#5934](https://github.com/gastownhall/beads/pull/5934)). Setting
+  `BEADS_DOLT_SERVER_PORT` (or the legacy `BEADS_DOLT_PORT`) now makes
+  `ResolveServerMode` classify a workspace as an externally-managed server, so
+  bd stops trying to own a lifecycle it does not own. The stale-server cleanup
+  path is deliberately carved out of that rule: it keeps resolving the mode
+  without the port var, so bd still reaps a same-repo orphan it started
+  (GH#2430) instead of declining because the environment named a port. A
+  `proxied-server` workspace is exempt from the new rule entirely — it reaches
+  its server through the proxy, so an ambient port does not describe its
+  lifecycle.
 - **Table-rebuild `__temp__` intermediates can no longer materialize as
   tracked tables on `@@dolt_transaction_commit=1` servers.** The
   ignored-series rebuilds stage every clone-local table through a
@@ -32,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   denied that INSERT fails its open until one privileged `bd` opens the store
   and heals the pattern — self-healing, one privileged open per upgrade
   (degrading a denied seed to a skip is tracked separately).
+  The #4356 untrack scratch table's name is covered by the new pattern, so
+  its reconcile now also finds a scratch left only at HEAD and force-stages
+  the drop, where a plain `DOLT_ADD` of an ignored table is a silent no-op.
 
 - **`bd doctor` no longer flags a `.local_version` that starts with `v`.** The
   canonical spelling of a Go module version — and the string a build stamped
