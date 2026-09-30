@@ -44,9 +44,13 @@ const (
 	// Dolt persists the working set to disk, so an uncommitted scratch table
 	// survives a crash: whatever phase is interrupted, the next open finds
 	// the rows and finishes the job. The name matches the seeded "__temp__%"
-	// dolt_ignore pattern, so a straggler does not show up in dolt_status:
-	// the reconcile finds it through information_schema instead, and the
-	// sweep force-stages its drop (see dropIgnoredCursorScratch).
+	// dolt_ignore pattern. That hides an UNTRACKED scratch from dolt_status
+	// and from every ignore-filtered staging path, so the reconcile finds it
+	// through information_schema instead. A scratch already committed at HEAD
+	// is not hidden — its deletion still shows in dolt_status — but a plain
+	// DOLT_ADD will not stage it, so the reconcile also probes HEAD and the
+	// sweep force-stages the drop (see readIgnoredCursorState and
+	// dropIgnoredCursorScratch).
 	ignoredCursorUntrackTempTable = "__temp__ignored_schema_migrations_untrack"
 
 	ignoredCursorUntrackCommitMessage = "schema: untrack legacy ignored_schema_migrations so dolt_ignore can apply (gastownhall/beads#4356)"
@@ -79,27 +83,43 @@ type ignoredCursorState struct {
 	// needsUntrack: the legacy shape — cursor table committed at HEAD while
 	// dolt_ignore genuinely covers it.
 	needsUntrack bool
-	// strayScratch: a scratch table survives from an interrupted repair.
-	// Left alone it is eventually committed into HEAD by an unrelated
-	// auto-commit and replicated fleet-wide, and it keeps the resurrection
-	// hazard armed (see resumeIgnoredCursorUntrack).
+	// strayScratch: a scratch table survives from an interrupted repair,
+	// either in the working set or committed at HEAD. Left alone a working-set
+	// copy keeps the resurrection hazard armed (see
+	// resumeIgnoredCursorUntrack), and a HEAD copy is tracked residue that
+	// every pull and push carries.
 	strayScratch bool
+	// scratchInWorkingSet: the scratch is present in the working set, i.e.
+	// it can be read as a source of rows. False with strayScratch set means
+	// the scratch exists only at HEAD — a pending deletion some earlier
+	// sweep dropped but never committed — which may only be swept, never
+	// restored from.
+	scratchInWorkingSet bool
 }
 
 func (s ignoredCursorState) reconcileNeeded() bool {
 	return s.needsUntrack || s.strayScratch
 }
 
-// readIgnoredCursorState answers both halves of the gate in two
-// always-succeeding reads. That property is not incidental: a Dolt session
-// that issues a FAILING statement stays pinned to its pre-statement catalog
+// readIgnoredCursorState answers both halves of the gate in always-succeeding
+// reads: three on a healthy database (the cursor table at HEAD, the scratch
+// table in the working set, the scratch table at HEAD), each bounded to one
+// row, plus the dolt_ignore read ignoredCursorNeedsUntrack adds only when the
+// cursor is tracked. That property is not incidental: a Dolt session that
+// issues a FAILING statement stays pinned to its pre-statement catalog
 // snapshot for the rest of its pooled life (be-bv7x), and this runs on every
 // writable open and every lock-free fast-path evaluation.
 //
+// The scratch needs the HEAD probe as well as the working-set one because the
+// "__temp__%" dolt_ignore pattern covers its name: a scratch committed at HEAD
+// and then dropped without the drop being committed is a pending deletion that
+// no ignore-filtered dirty guard reports, so only this gate can find it. The
+// HEAD probe is skipped when the working-set probe already answered.
+//
 // qualifier is the identifier-quoted database name selectTargetDatabase
 // returned, or empty when the session is already on the target database. The
-// scratch probe needs no qualifier: it reads information_schema against
-// DATABASE(), which both callers have already put on the target.
+// working-set scratch probe needs no qualifier: it reads information_schema
+// against DATABASE(), which both callers have already put on the target.
 func readIgnoredCursorState(ctx context.Context, db DBConn, qualifier string) (ignoredCursorState, error) {
 	var state ignoredCursorState
 
@@ -109,18 +129,26 @@ func readIgnoredCursorState(ctx context.Context, db DBConn, qualifier string) (i
 	}
 	state.needsUntrack = needsUntrack
 
-	stray, err := schemaTableExists(ctx, db, ignoredCursorUntrackTempTable)
+	inWorkingSet, err := schemaTableExists(ctx, db, ignoredCursorUntrackTempTable)
 	if err != nil {
 		return state, fmt.Errorf("probing %s: %w", ignoredCursorUntrackTempTable, err)
 	}
-	state.strayScratch = stray
+	state.scratchInWorkingSet = inWorkingSet
+	state.strayScratch = inWorkingSet
+	if !inWorkingSet {
+		atHead, err := tableTrackedAtHead(ctx, db, qualifier, ignoredCursorUntrackTempTable)
+		if err != nil {
+			return state, err
+		}
+		state.strayScratch = atHead
+	}
 	return state, nil
 }
 
 // healTrackedIgnoredCursorTable untracks a legacy tracked-at-HEAD
 // ignored_schema_migrations table and restores its rows, reporting whether it
-// changed anything. It runs on every writable open and costs two reads on a
-// healthy database.
+// changed anything. It runs on every writable open and costs three bounded
+// reads on a healthy database (see readIgnoredCursorState).
 //
 // Failure policy, straight from the #5816 lesson that a heal must never mint a
 // new class of un-openable database: everything up to and including the
@@ -143,7 +171,7 @@ func healTrackedIgnoredCursorTable(ctx context.Context, db DBConn) (bool, error)
 		return false, nil
 	}
 	if !state.needsUntrack {
-		return resumeIgnoredCursorUntrack(ctx, db)
+		return resumeIgnoredCursorUntrack(ctx, db, state.scratchInWorkingSet)
 	}
 
 	// Advisory zone. Nothing here is destructive: a partial scratch table is
@@ -187,8 +215,10 @@ func healTrackedIgnoredCursorTable(ctx context.Context, db DBConn) (bool, error)
 // series re-applies (docs/recovery). Re-inserting exactly those versions, with
 // their old applied_at, would silently skip the corrected migrations. When the
 // cursor table is present the scratch is stale bookkeeping and the only
-// correct action is to remove it.
-func resumeIgnoredCursorUntrack(ctx context.Context, db DBConn) (bool, error) {
+// correct action is to remove it. Nor can a scratch that exists only at HEAD
+// (scratchInWorkingSet false: a pending deletion) be a source of rows — there
+// is nothing to read — so that state is always swept, never restored.
+func resumeIgnoredCursorUntrack(ctx context.Context, db DBConn, scratchInWorkingSet bool) (bool, error) {
 	// The operator veto is re-read here, not inherited: an operator who
 	// resolved a crashed repair by deliberately versioning the cursor table
 	// must not have stale rows pushed back into it on the next open.
@@ -208,7 +238,7 @@ func resumeIgnoredCursorUntrack(ctx context.Context, db DBConn) (bool, error) {
 	log.Printf("schema: cleaning up after an interrupted %s untrack (gastownhall/beads#4356)",
 		ignoredSource.cursorTable)
 
-	restore := !cursorPresent && ignored
+	restore := !cursorPresent && ignored && scratchInWorkingSet
 	if restore {
 		err = restoreIgnoredCursorRows(ctx, db)
 	} else {
