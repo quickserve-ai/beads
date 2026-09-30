@@ -119,6 +119,81 @@ func TestIgnoredCursorScratchPendingDeletionIsSweptOnOpen(t *testing.T) {
 	}
 }
 
+// With the cursor table also missing, the resume must still only sweep: the
+// scratch has no working-set rows to restore from, so treating it as a restore
+// source would fail every open. The migration pass rebuilds the cursor.
+func TestIgnoredCursorScratchPendingDeletionWithCursorMissingSweepsOnly(t *testing.T) {
+	ctx := t.Context()
+	pristine := newPristineEmbeddedDoltFixture(t, "scratchnocursor")
+	closeEmbeddedDoltStore(t, pristine.store)
+	f := &legacyTrackedFixture{
+		beadsDir: pristine.beadsDir,
+		dataDir:  pristine.dataDir,
+		database: "scratchnocursor",
+	}
+
+	f.withRawConn(t, func(conn *sql.Conn) {
+		requireTempPatternSeeded(t, conn)
+		backupCursorRows(t, ctx, conn)
+		mustExecOn(t, ctx, conn, "CALL DOLT_ADD('-f', '"+untrackScratchTable+"')")
+		mustExecOn(t, ctx, conn, "CALL DOLT_COMMIT('-m', 'unrelated blanket commit sweeps the scratch into HEAD')")
+		mustExecOn(t, ctx, conn, "DROP TABLE "+untrackScratchTable)
+		mustExecOn(t, ctx, conn, "DROP TABLE ignored_schema_migrations")
+	})
+
+	f.reopenAndClose(t)
+	f.withRawConn(t, func(conn *sql.Conn) {
+		if trackedAtHead(t, ctx, conn, untrackScratchTable) {
+			t.Errorf("%s is still committed at HEAD", untrackScratchTable)
+		}
+		if tablePresent(t, ctx, conn, untrackScratchTable) {
+			t.Errorf("%s was recreated", untrackScratchTable)
+		}
+		if !tablePresent(t, ctx, conn, "ignored_schema_migrations") {
+			t.Error("the migration pass did not rebuild the cursor table")
+		}
+		if dirty := dirtyTableNames(t, ctx, conn); len(dirty) > 0 {
+			t.Errorf("working set is dirty after the reopen: %v", dirty)
+		}
+	})
+}
+
+// The gate's scratch-at-HEAD probe runs on every open of a healthy database,
+// so it must be a statement that SUCCEEDS there (be-bv7x): on a brand-new
+// database whose HEAD is only the init commit, in both spellings the gate
+// issues — unqualified on the session database, and qualified with the
+// backtick-quoted name selectTargetDatabase hands the server fast path.
+func TestScratchHeadProbeSucceedsOnABrandNewDatabase(t *testing.T) {
+	ctx := t.Context()
+	pristine := newPristineEmbeddedDoltFixture(t, "headprobe")
+	closeEmbeddedDoltStore(t, pristine.store)
+
+	withRawConn(t, pristine.dataDir, "headprobe", func(conn *sql.Conn) {
+		mustExecOn(t, ctx, conn, "CREATE DATABASE brandnew")
+		for _, query := range []string{
+			"SHOW TABLES FROM `brandnew` AS OF 'HEAD' LIKE '" + untrackScratchTable + "'",
+			"USE brandnew",
+			"SHOW TABLES AS OF 'HEAD' LIKE '" + untrackScratchTable + "'",
+		} {
+			rows, err := conn.QueryContext(ctx, query)
+			if err != nil {
+				t.Fatalf("%q failed on a brand-new database: %v", query, err)
+			}
+			n := 0
+			for rows.Next() {
+				n++
+			}
+			if err := rows.Err(); err != nil {
+				t.Fatalf("%q: %v", query, err)
+			}
+			_ = rows.Close()
+			if n != 0 {
+				t.Errorf("%q returned %d rows on a brand-new database, want 0", query, n)
+			}
+		}
+	})
+}
+
 // requireTempPatternSeeded fails the test unless dolt_ignore carries the
 // exact "__temp__%"=true row, so a scratch-sweep test cannot pass because the
 // name it exercises happens not to be ignored.
