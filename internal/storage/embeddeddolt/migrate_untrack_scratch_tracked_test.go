@@ -16,10 +16,10 @@ import (
 // then drop it AND commit the deletion, or a permanent delete delta is left
 // in the working set.
 //
-// The drop is committed through a plain DOLT_ADD, which is a silent no-op on a
-// table dolt_ignore covers. The scratch name is therefore only safe to sweep
-// while no dolt_ignore pattern matches it; this pins that the sweep works on
-// the real engine with whatever patterns the open itself seeds.
+// The seeded "__temp__%" dolt_ignore pattern matches the scratch name, and a
+// plain DOLT_ADD of an ignored table is a silent no-op — so the sweep must
+// force-stage the drop. The fixture asserts the pattern is in effect before
+// the reopen, so this cannot pass merely because the name is not ignored.
 func TestIgnoredCursorScratchTrackedAtHeadIsSweptOnOpen(t *testing.T) {
 	ctx := t.Context()
 	pristine := newPristineEmbeddedDoltFixture(t, "scratchtracked")
@@ -31,13 +31,14 @@ func TestIgnoredCursorScratchTrackedAtHeadIsSweptOnOpen(t *testing.T) {
 	}
 
 	f.withRawConn(t, func(conn *sql.Conn) {
+		requireTempPatternSeeded(t, conn)
 		backupCursorRows(t, ctx, conn)
 		mustExecOn(t, ctx, conn, "CALL DOLT_ADD('-f', '"+untrackScratchTable+"')")
 		mustExecOn(t, ctx, conn, "CALL DOLT_COMMIT('-m', 'unrelated blanket commit sweeps the scratch into HEAD')")
 		if !trackedAtHead(t, ctx, conn, untrackScratchTable) {
 			t.Fatalf("fixture did not commit %s into HEAD; the tracked-straggler state is not reproduced", untrackScratchTable)
 		}
-		if tablePresent(t, ctx, conn, "ignored_schema_migrations") == false {
+		if !tablePresent(t, ctx, conn, "ignored_schema_migrations") {
 			t.Fatal("fixture has no live cursor table; the resume path would restore instead of sweeping")
 		}
 	})
