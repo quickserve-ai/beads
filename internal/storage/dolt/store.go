@@ -527,6 +527,9 @@ func dialTimeoutFor(cfg *Config) time.Duration {
 // evidence the server is down, and without the retry it counted toward the
 // circuit breaker's five-failure trip (ga-g8lsb4). A refused or otherwise
 // failed dial is not retried — that answer is immediate and honest. The
+// retry also applies to loopback: a firewalled or wedged local port that
+// times out now reports after twice the budget (1s by default), so a slow
+// fail-fast report reads as 2x the configured dial timeout by design. The
 // returned error carries the measured wall time so an unreachable report
 // arrives with a number.
 func dialServerFailFast(network, addr string, timeout time.Duration) (net.Conn, error) {
