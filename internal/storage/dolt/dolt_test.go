@@ -193,7 +193,7 @@ func setupTestStore(t *testing.T) (*DoltStore, func()) {
 	// migrationLockAcquireTimeoutSeconds) fail the test outright under
 	// parallel load. Use the same retrying helper production uses so a
 	// contended lock wait is retried (30s budget) instead of failing fast.
-	if _, err := initSchemaOnDBWithRetry(ctx, store.db); err != nil {
+	if _, err := initSchemaOnDBWithRetry(ctx, store.db, 0); err != nil {
 		branchCleanup()
 		store.Close()
 		os.RemoveAll(tmpDir)
@@ -220,7 +220,7 @@ func setupTestStore(t *testing.T) (*DoltStore, func()) {
 // retrying helper retries only a contended lock or a transient connection
 // error, never a migration result, so the outcome under test is unchanged.
 func rerunSchemaInitOnTestStore(ctx context.Context, store *DoltStore) (int, error) {
-	return initSchemaOnDBWithRetry(ctx, store.db)
+	return initSchemaOnDBWithRetry(ctx, store.db, 0)
 }
 
 // setupConcurrentTestStore creates a test store with its own database for
