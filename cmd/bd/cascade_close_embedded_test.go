@@ -4,14 +4,19 @@ package main
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/steveyegge/beads/internal/types"
 )
 
 // TestCascadeCloseMoleculeSteps verifies the molecule cascade-DOWN behavior:
-// when a molecule (or ephemeral) root closes by any path through `bd close`,
-// its open parent-child step-children are auto-closed. This is the inverse of
+// when a molecule (or ephemeral) root is closed with --force through `bd close`,
+// its open parent-child step-children are auto-closed. An UNFORCED close of a
+// root with open steps is refused by the engine's open-children guard
+// (issueops CloseOpenChildrenError) before the cascade is reached, and has been
+// on every fleet unit since rc.2; the refusal case below pins that, so a later
+// unit that changes it does so on purpose (ga-s1zc94.1, ga-inpgj6). This is the inverse of
 // autoCloseCompletedMolecule (which cascades UP). Root cause of the recurring
 // hq reaper wisp-count alert: patrol molecules whose root was closed by a
 // non-last-step path left their step-children open and accumulating (gt-o5z4).
@@ -34,13 +39,30 @@ func TestCascadeCloseMoleculeSteps(t *testing.T) {
 		bdDepAdd(t, bd, dir, step1.ID, root.ID, "--type", "parent-child")
 		bdDepAdd(t, bd, dir, step2.ID, root.ID, "--type", "parent-child")
 
-		bdClose(t, bd, dir, root.ID)
+		bdClose(t, bd, dir, root.ID, "--force")
 
 		for _, id := range []string{step1.ID, step2.ID} {
 			got := bdShow(t, bd, dir, id)
 			if got.Status != types.StatusClosed {
 				t.Errorf("step %s: expected status %q after molecule root close, got %q",
 					id, types.StatusClosed, got.Status)
+			}
+		}
+	})
+
+	t.Run("unforced_molecule_root_close_is_refused_and_steps_stay_open", func(t *testing.T) {
+		dir, _, _ := bdInit(t, bd, "--prefix", "cu")
+		root := bdCreate(t, bd, dir, "Patrol molecule", "--type", "molecule")
+		step := bdCreate(t, bd, dir, "Step", "--type", "task")
+		bdDepAdd(t, bd, dir, step.ID, root.ID, "--type", "parent-child")
+
+		out := bdCloseFail(t, bd, dir, root.ID)
+		if !strings.Contains(out, "open child issue(s)") {
+			t.Errorf("expected the open-children refusal, got:\n%s", out)
+		}
+		for _, id := range []string{root.ID, step.ID} {
+			if got := bdShow(t, bd, dir, id); got.Status == types.StatusClosed {
+				t.Errorf("%s: an unforced molecule-root close must be refused and leave it open, but it was closed", id)
 			}
 		}
 	})
@@ -73,7 +95,7 @@ func TestCascadeCloseMoleculeSteps(t *testing.T) {
 		bdDepAdd(t, bd, dir, sub.ID, root.ID, "--type", "parent-child")
 		bdDepAdd(t, bd, dir, leaf.ID, sub.ID, "--type", "parent-child")
 
-		bdClose(t, bd, dir, root.ID)
+		bdClose(t, bd, dir, root.ID, "--force")
 
 		for _, id := range []string{sub.ID, leaf.ID} {
 			got := bdShow(t, bd, dir, id)

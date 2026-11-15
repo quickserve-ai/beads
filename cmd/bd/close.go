@@ -236,9 +236,14 @@ the flags appear in the command line.`,
 			// root, close its still-open parent-child step-children. This is the
 			// inverse of autoCloseCompletedMolecule (which cascades UP and now runs
 			// in both close branches above); it prevents orphaned steps when a
-			// molecule root is closed by a non-last-step path (direct close,
-			// abandonment). Ordinary epics do not cascade. Runs once per settled
-			// id; on an already-closed re-close it finds no open steps and no-ops.
+			// molecule root is closed by a non-last-step path. Only a FORCED close
+			// gets here with open steps: an unforced close of a root with open
+			// parent-child steps is refused by the engine's open-children guard
+			// above (issueops CloseOpenChildrenError), as on every unit since rc.2,
+			// so a direct or abandoning close must pass --force to cascade
+			// (TestCascadeCloseMoleculeSteps pins both). Ordinary epics do not
+			// cascade. Runs once per settled id; on an already-closed re-close it
+			// finds no open steps and no-ops.
 			//
 			// Ordered BEFORE the snapshot below, but the snapshot does not depend on
 			// it: the cascade closes this issue's step-CHILDREN, never the issue
