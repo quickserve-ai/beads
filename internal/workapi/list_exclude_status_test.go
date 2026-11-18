@@ -42,6 +42,28 @@ func TestListExcludeStatusAppendsAndValidates(t *testing.T) {
 	if !errors.Is(err, issueops.ErrValidation) || !strings.HasPrefix(err.Error(), "invalid exclude-status ") {
 		t.Errorf("unknown exclude status: err = %v, want ErrValidation starting \"invalid exclude-status \"", err)
 	}
+	// Blank entries and blank comma parts are skipped, not refused and not
+	// read as a status.
+	f, err = BuildListFilter(issueops.ListRequest{AllFlag: true, ExcludeStatus: []string{"", " , closed ,", "  "}}, cfg)
+	if err != nil {
+		t.Fatalf("BuildListFilter with blank entries: %v", err)
+	}
+	if want := []types.Status{types.StatusClosed}; !slices.Equal(f.ExcludeStatus, want) {
+		t.Errorf("blank entries: ExcludeStatus = %v, want %v", f.ExcludeStatus, want)
+	}
+	// A workspace custom status is a valid name to exclude; the same name in a
+	// workspace that does not define it is refused.
+	custom := ListConfig{CustomStatuses: []types.CustomStatus{{Name: "review", Category: types.CategoryWIP}}}
+	f, err = BuildListFilter(issueops.ListRequest{AllFlag: true, ExcludeStatus: []string{"review"}}, custom)
+	if err != nil {
+		t.Fatalf("BuildListFilter excluding a custom status: %v", err)
+	}
+	if want := []types.Status{"review"}; !slices.Equal(f.ExcludeStatus, want) {
+		t.Errorf("custom status: ExcludeStatus = %v, want %v", f.ExcludeStatus, want)
+	}
+	if _, err = BuildListFilter(issueops.ListRequest{AllFlag: true, ExcludeStatus: []string{"review"}}, cfg); !errors.Is(err, issueops.ErrValidation) {
+		t.Errorf("custom status absent from the workspace: err = %v, want ErrValidation", err)
+	}
 	_, err = BuildListFilter(issueops.ListRequest{ReadyFlag: true, ExcludeStatus: []string{"closed"}}, cfg)
 	if !errors.Is(err, issueops.ErrValidation) {
 		t.Errorf("ReadyFlag with ExcludeStatus: err = %v, want a refusal wrapping ErrValidation (the ready query cannot carry it)", err)
