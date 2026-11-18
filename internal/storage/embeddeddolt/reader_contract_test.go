@@ -49,6 +49,12 @@ func TestEmbeddedReaderListMaxRowsIsHonored(t *testing.T) {
 	conformance.RunReaderListMaxRowsIsHonored(t, ctx, newEmbeddedReaderFixture(t, "rdr"))
 }
 
+func TestEmbeddedReaderListExcludeStatusLeavesOutTheNamedStatuses(t *testing.T) {
+	skipUnlessEmbeddedDolt(t)
+	ctx := t.Context()
+	conformance.RunReaderListExcludeStatusLeavesOutTheNamedStatuses(t, ctx, newEmbeddedReaderFixture(t, "rdr"))
+}
+
 func TestEmbeddedReaderListMaxRowsBoundaryIsLimitPlusOffset(t *testing.T) {
 	skipUnlessEmbeddedDolt(t)
 	ctx := t.Context()

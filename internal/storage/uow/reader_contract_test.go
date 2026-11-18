@@ -45,6 +45,9 @@ func TestReaderContract(t *testing.T) {
 	t.Run("ListMaxRowsIsHonored", func(t *testing.T) {
 		conformance.RunReaderListMaxRowsIsHonored(t, ctx, fixture)
 	})
+	t.Run("ListExcludeStatusLeavesOutTheNamedStatuses", func(t *testing.T) {
+		conformance.RunReaderListExcludeStatusLeavesOutTheNamedStatuses(t, ctx, fixture)
+	})
 	// The same cap, driven along the OFFSET axis. This body hands its seam the
 	// widened limit and lets internal/storage/domain/db size the bound and the
 	// cap from it, where the store-backed body sizes both above the seam — two

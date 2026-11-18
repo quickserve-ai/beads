@@ -47,6 +47,12 @@ func TestReaderListMaxRowsIsHonored(t *testing.T) {
 	conformance.RunReaderListMaxRowsIsHonored(t, ctx, fixture)
 }
 
+func TestReaderListExcludeStatusLeavesOutTheNamedStatuses(t *testing.T) {
+	fixture, ctx, cleanup := newDoltReaderFixture(t, "rdr")
+	defer cleanup()
+	conformance.RunReaderListExcludeStatusLeavesOutTheNamedStatuses(t, ctx, fixture)
+}
+
 // The cap's boundary along the OFFSET axis. It is the composition this body
 // reaches in two steps — widen the filter, then size the probe row — that the
 // case checks, and no request without an offset can see it go wrong.
