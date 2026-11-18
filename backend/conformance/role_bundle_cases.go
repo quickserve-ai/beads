@@ -516,7 +516,6 @@ var roleContractCases = []roleContract{
 		RunReaderListReadyFlagRefusesAFilterItCannotCarry,
 		RunReaderListEmptyPageIsWellFormed,
 		RunReaderListMaxRowsIsHonored,
-		RunReaderListExcludeStatusLeavesOutTheNamedStatuses,
 		RunReaderListMaxRowsBoundaryIsLimitPlusOffset,
 		RunReaderListSkipCountsDropsTheCardinalitiesAndNothingElse,
 		RunReaderGetResolvesTheExactIDAcrossBothPlanes,
@@ -542,6 +541,7 @@ var roleContractCases = []roleContract{
 		RunReaderListWispTypeNarrowsTheAdmittedPlaneRatherThanAdmittingIt,
 		RunReaderListBriefDropsTheFreeFormTextAndNothingElse,
 		RunReaderReadyBriefDropsTheFreeFormTextAndNothingElse,
+		RunReaderListExcludeStatusLeavesOutTheNamedStatuses,
 	),
 
 	roleCases("ReadyClaimer", "ReadyClaimer() and IssueReader()", oncePerRole,
