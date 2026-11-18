@@ -90,6 +90,8 @@ var readyScopeFields = []readyScopeField{
 	{"NoLabels", "--no-labels", func(r ListRequest) bool { return r.NoLabels }},
 	{"NoParent", "--no-parent", func(r ListRequest) bool { return r.NoParent }},
 	{"PinnedFlag", "--pinned", func(r ListRequest) bool { return r.PinnedFlag }},
+	// No `bd list` flag sets ExcludeStatus, so upstream's wire name stands in.
+	{"ExcludeStatus", "exclude_status", func(r ListRequest) bool { return len(r.ExcludeStatus) > 0 }},
 
 	{"PriorityMin", "--priority-min", func(r ListRequest) bool { return r.PriorityMin != nil }},
 	{"PriorityMax", "--priority-max", func(r ListRequest) bool { return r.PriorityMax != nil }},

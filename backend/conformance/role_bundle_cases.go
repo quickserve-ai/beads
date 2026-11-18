@@ -516,6 +516,7 @@ var roleContractCases = []roleContract{
 		RunReaderListReadyFlagRefusesAFilterItCannotCarry,
 		RunReaderListEmptyPageIsWellFormed,
 		RunReaderListMaxRowsIsHonored,
+		RunReaderListExcludeStatusLeavesOutTheNamedStatuses,
 		RunReaderListMaxRowsBoundaryIsLimitPlusOffset,
 		RunReaderListSkipCountsDropsTheCardinalitiesAndNothingElse,
 		RunReaderGetResolvesTheExactIDAcrossBothPlanes,

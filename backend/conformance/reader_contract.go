@@ -3394,3 +3394,60 @@ func readerCopyStringMap(in map[string]string) map[string]string {
 	}
 	return out
 }
+
+// RunReaderListExcludeStatusLeavesOutTheNamedStatuses pins
+// ListRequest.ExcludeStatus on every Reader: under AllFlag it keeps every
+// status not named (the active set, without enumerating statuses), it takes
+// repeated and comma-separated values, it ADDS to the default exclusions
+// rather than replacing them (excluding blocked must not re-admit closed), it
+// narrows an explicit Status, and an unknown name is refused rather than
+// silently excluding nothing. Fleet carry (ga-yuiof4), the ExcludeStatus
+// cases of upstream #7647's RunReaderListFilterFamiliesNarrowToTheirRows.
+func RunReaderListExcludeStatusLeavesOutTheNamedStatuses(t *testing.T, ctx context.Context, fixture ReaderFixture) {
+	t.Helper()
+	id := func(name string) string { return readerID(fixture, "lxs", name) }
+	seed := func(name string, mutate func(*types.Issue)) string {
+		t.Helper()
+		issue := readerIssue(id(name), types.TypeTask, "")
+		if mutate != nil {
+			mutate(issue)
+		}
+		seedReaderIssue(t, ctx, fixture, issue)
+		return issue.ID
+	}
+	stOpen := seed("st-open", nil)
+	stProgress := seed("st-progress", func(i *types.Issue) { i.Status = types.StatusInProgress })
+	stBlocked := seed("st-blocked", func(i *types.Issue) { i.Status = types.StatusBlocked })
+	stClosed := seed("st-closed", func(i *types.Issue) {
+		i.Status = types.StatusClosed
+		closedAt := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+		i.ClosedAt = &closedAt
+	})
+	statusScope := readerIDFilter(stOpen, stProgress, stBlocked, stClosed)
+	all := func(exclude ...string) publicops.ListRequest {
+		return publicops.ListRequest{IDFilter: statusScope, AllFlag: true, ExcludeStatus: exclude}
+	}
+
+	for _, test := range []struct {
+		name string
+		req  publicops.ListRequest
+		want []string
+	}{
+		{"AllFlag alone keeps every status", all(), []string{stOpen, stProgress, stBlocked, stClosed}},
+		{"ExcludeStatus under AllFlag keeps every status not named", all("closed"), []string{stOpen, stProgress, stBlocked}},
+		{"ExcludeStatus takes repeated and comma-separated values", all("blocked,in_progress", " closed "), []string{stOpen}},
+		{"ExcludeStatus adds to the default exclusions rather than replacing them", publicops.ListRequest{IDFilter: statusScope, ExcludeStatus: []string{"blocked"}}, []string{stOpen, stProgress}},
+		{"ExcludeStatus narrows an explicit Status", publicops.ListRequest{IDFilter: statusScope, Status: "open,blocked,closed", ExcludeStatus: []string{"blocked"}}, []string{stOpen, stClosed}},
+	} {
+		page, err := fixture.Reader.List(ctx, test.req)
+		if err != nil {
+			t.Errorf("List (%s): %v", test.name, err)
+			continue
+		}
+		assertReaderPageIDSet(t, "List ("+test.name+")", page, test.want)
+	}
+
+	if _, err := fixture.Reader.List(ctx, publicops.ListRequest{IDFilter: statusScope, ExcludeStatus: []string{"clsoed"}}); !errors.Is(err, publicops.ErrValidation) {
+		t.Errorf("List with ExcludeStatus naming an unknown status = %v, want an error wrapping ErrValidation", err)
+	}
+}
